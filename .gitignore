@@ -1,0 +1,15 @@
+# Editor folder and files
+.vscode
+
+# Build folders and files
+dist
+build
+MANIFEST
+
+# Helpers folders
+tests
+models
+
+# Python
+__pycache__
+*.pyc
