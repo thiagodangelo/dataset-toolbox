@@ -275,7 +275,7 @@ def display(obj: pd.Series, name: str) -> None:
     image = cv2.imread(str(obj.image))
     cv2.imshow(name, image)
 
-def postprocess_roi(image: np.ndarray, rect: [int, int, int, int]) -> (int, int, int, int):
+def postprocess_roi(image: np.ndarray, rect: [int, int, int, int]) -> (int, int, int, int, (int, int), (int, int)):
     p1, p2 = get_square_box(image, rect, scale=0.85)
     height, width = image.shape[:2]
     x1, y1 = p1
