@@ -401,7 +401,6 @@ def detect_and_export(
 ):
     data = [obj for i, obj in df.sort_values(by=["image"]).iterrows()]
     data = split(data, ptrain, pval, ptest)
-    # output.mkdir(exist_ok=True)
     for split_set, split_data in data.items():
         output_neg = output / split_set / "2"
         os.makedirs(str(output_neg), exist_ok=True)
@@ -478,7 +477,6 @@ def view_detection(
             direction = 1 if direction == 0 else direction
         else:
             display_objects(obj, "detecting mode", detector)
-            # display_vehicles(obj, "detecting mode", detector)
             key = cv2.waitKey()
             if key == ord("q"):
                 break
