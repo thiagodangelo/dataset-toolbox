@@ -46,6 +46,7 @@ def main() -> None:
     parser.add_argument("-dt", "--detect", action="store_true")
     parser.add_argument("-an", "--add_noise", action="store_true")
     parser.add_argument("-r", "--rotate", action="store_true")
+    parser.add_argument("-mr", "--mirror", action="store_true")
     parser.add_argument("-s", "--save", action="store_true")
     parser.add_argument("-v", "--view", action="store_true")
     parser.add_argument("-vd", "--view_detection", action="store_true")
@@ -64,6 +65,8 @@ def main() -> None:
         rotate_all_random(df, args.angle)
     if args.add_noise:
         add_noise_all(df, args.noise_mode)
+    if args.mirror:
+        mirror_all(df)
     if args.detect:
         detector = DetectorFactory.create(args.model_type, args.model_files)
         detect_and_export(df, args.blacklist, detector, args.output, args.prefix)
@@ -100,6 +103,11 @@ def read_file(filename: pathlib.Path) -> list:
     # blacklist = False
     # mirror = False
     # angle = 0
+    # # Box csv
+    # box_id = -1
+    # class = -1
+    # confidence = -1
+    # image_id =
     file_metadata.append([file_id, image_file])  # , blacklist, mirror, angle])
     return file_metadata
 
@@ -359,7 +367,7 @@ def detect_and_store_rois(obj: pd.Series, detector: DetectorInterface) -> None:
     for rect in rects:
         xc, yc, w, h, _, _ = postprocess_roi(image, rect)
         roi = image[yc : yc + h, xc : xc + w].copy()
-        has_object = 'positive' in str(obj.image.parent)
+        has_object = "positive" in str(obj.image.parent)
         if has_object:
             obj.pos.append(roi)
         else:
@@ -499,7 +507,7 @@ def view_detection(
 
 
 def rename(filename: str, suffix: str):
-    name, ext = filename.split('.')
+    name, ext = filename.split(".")
     return f"{name}_{suffix}.{ext}"
 
 
@@ -507,7 +515,7 @@ def rotate(obj: pd.Series, angle: float):
     image = cv2.imread(str(obj.image))
     image = imutils.rotate_bound(image, angle)
     full_path = list(obj.image.parts)
-    full_path[-1] = rename(full_path[-1], f'angle_{int(angle)}')
+    full_path[-1] = rename(full_path[-1], f"angle_{int(angle)}")
     full_path = pathlib.Path(*full_path)
     cv2.imwrite(str(full_path), image)
 
@@ -516,7 +524,7 @@ def rotate_roi(obj: pd.Series, angle: float):
     image = cv2.imread(str(obj.image))
     image = imutils.rotate(image, angle)
     full_path = list(obj.image.parts)
-    full_path[-1] = rename(full_path[-1], f'angle_{int(angle)}')
+    full_path[-1] = rename(full_path[-1], f"angle_{int(angle)}")
     full_path = pathlib.Path(*full_path)
     cv2.imwrite(str(full_path), image)
 
@@ -539,7 +547,7 @@ def add_noise(obj: pd.Series, mode: str):
     image = skimage.util.random_noise(image / 255.0, mode=mode)
     image = image * 255.0
     full_path = list(obj.image.parts)
-    full_path[-1] = rename(full_path[-1], f'noise_{mode}')
+    full_path[-1] = rename(full_path[-1], f"noise_{mode}")
     full_path = pathlib.Path(*full_path)
     cv2.imwrite(str(full_path), image.astype(np.uint8))
 
@@ -547,6 +555,20 @@ def add_noise(obj: pd.Series, mode: str):
 def add_noise_all(df: pd.DataFrame, mode: str) -> None:
     for _, obj in df.sort_values(by=["image"]).iterrows():
         add_noise(obj, mode)
+
+
+def mirror(obj: pd.Series) -> None:
+    image = cv2.imread(str(obj.image))
+    image = cv2.flip(image, 1)
+    full_path = list(obj.image.parts)
+    full_path[-1] = rename(full_path[-1], "mirror")
+    full_path = pathlib.Path(*full_path)
+    cv2.imwrite(str(full_path), image)
+
+
+def mirror_all(df: pd.DataFrame) -> None:
+    for _, obj in df.sort_values(by=["image"]).iterrows():
+        mirror(obj)
 
 
 def load(filename: pathlib.Path) -> pd.DataFrame():
