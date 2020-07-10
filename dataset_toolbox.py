@@ -6,6 +6,7 @@ import datetime
 import random
 
 import cv2
+import dlib
 import skimage
 import imutils
 
@@ -30,7 +31,9 @@ def main() -> None:
     parser.add_argument("-iid", "--image_id", type=int, default=-1)
     parser.add_argument("-m", "--model_files", type=str, nargs="+", default=["models/model.xml"])
     parser.add_argument("-t", "--model_type", type=lambda model: DetectorModel[model], choices=list(DetectorModel), default="CvCaffe")
-    parser.add_argument("-km", "--keypoint_model", type=str, default=["models/model.dat"])
+    parser.add_argument("-sm", "--shape_model", type=str, default="models/model.dat")
+    parser.add_argument("-si", "--shape_indexes", type=int, nargs="+", default=[48, 54])
+    parser.add_argument("-sam", "--shape_auto_mode", type=str, default="mean")
     parser.add_argument("-a", "--angle", type=float, default=0.0)
     parser.add_argument("-mc", "--min_conf", type=float, default="-inf")
     parser.add_argument("-Mc", "--max_conf", type=float, default="inf")
@@ -84,7 +87,19 @@ def main() -> None:
         view_detection(df, args.blacklist, detector)
     if args.view_mask:
         detector = DetectorFactory.create(args.model_type, args.model_files)
-        view_mask(df, df_mask, args.blacklist, detector, args.output, args.image_id)
+        predictor = {
+            "predictor": None,
+            "auto": False,
+            "indexes": args.shape_indexes,
+            "mode": args.shape_auto_mode,
+        }
+        try:
+            predictor["predictor"] = dlib.shape_predictor(args.shape_model)
+            predictor["auto"] = True
+            print("Shape predictor found. Automatic positioning is on.")
+        except:
+            print("Shape predictor not found. Automatic positioning is off.")
+        view_mask(df, df_mask, args.blacklist, detector, predictor, args.output, args.image_id)
     if args.view:
         view(df, args.blacklist)
     if args.save:
@@ -315,14 +330,31 @@ def postprocess_roi(image: np.ndarray, rect: [int, int, int, int]) -> (int, int,
     return xc, yc, w, h, p1, p2
 
 
-def draw_mask(image: np.ndarray, mask_image: np.ndarray, mask: np.ndarray, mask_properties: dict, rect: list) -> np.ndarray:
+def get_mask_pivot(image: np.ndarray, rect: list, predictor: dict):
+    x, y, w, h = rect
+    x_p = x + w // 2
+    y_p = y + 3 * h // 4
+    pivot = (x_p, y_p)
+    if predictor["auto"]:
+        det = (x, y, x + w, y + h)
+        rect = dlib.rectangle(*det)
+        shape = predictor["predictor"](image, rect)
+        coords = np.zeros((2, len(predictor["indexes"])))
+        for i, j in enumerate(predictor["indexes"]):
+            coords[0, i] = shape.part(j).x
+            coords[1, i] = shape.part(j).y
+        if predictor["mode"] == "mean":
+            mean = coords.mean(axis=1)
+            pivot = (int(mean[0]), int(mean[1]))
+    return pivot
+        
+
+def draw_mask(image: np.ndarray, mask_image: np.ndarray, mask: np.ndarray, mask_properties: dict, pivot: tuple) -> np.ndarray:
     h_img, w_img = image.shape[:2]
     h_mask, w_mask = mask.shape[:2]
     dx_mask = mask_properties["x"]
     dy_mask = mask_properties["y"]
-    x, y, w, h = rect
-    x_p = x + w // 2
-    y_p = y + 3 * h // 4
+    x_p, y_p = pivot
     x_p += dx_mask
     y_p += dy_mask
     x0_roi = int(np.floor(x_p - w_mask / 2))
@@ -353,7 +385,7 @@ def draw_mask(image: np.ndarray, mask_image: np.ndarray, mask: np.ndarray, mask_
         roi[roi_mask == 255] = roi_mask_image[roi_mask == 255]
     return image
 
-def display_objects_and_mask(obj: pd.Series, obj_mask: pd.Series, mask_properties: dict, name: str, detector: DetectorInterface) -> np.ndarray:
+def display_objects_and_mask(obj: pd.Series, obj_mask: pd.Series, mask_properties: dict, name: str, detector: DetectorInterface, predictor: dict) -> np.ndarray:
     image = cv2.imread(str(obj.image))
     mask = cv2.imread(str(obj_mask.image), cv2.IMREAD_UNCHANGED)
     scale = mask_properties["scale"]
@@ -385,7 +417,8 @@ def display_objects_and_mask(obj: pd.Series, obj_mask: pd.Series, mask_propertie
     for rect in rects:
         x, y, w, h, p1, p2 = postprocess_roi(image, rect)
         rect = [x, y, w, h]
-        image = draw_mask(image, mask_image, mask, mask_properties, rect)
+        pivot = get_mask_pivot(image, rect, predictor)
+        image = draw_mask(image, mask_image, mask, mask_properties, pivot)
     cv2.imshow(name, image)
     return image
 
@@ -630,7 +663,7 @@ def save_image_and_mask(obj: pd.Series, image: np.ndarray, image_id: int, output
 
 
 def view_mask(
-    df: pd.DataFrame, df_mask: pd.DataFrame, blacklist: pathlib.Path, detector: DetectorInterface, output: pathlib.Path, image_id: int = -1
+    df: pd.DataFrame, df_mask: pd.DataFrame, blacklist: pathlib.Path, detector: DetectorInterface, predictor: dict, output: pathlib.Path, image_id: int = -1
 ) -> None:
     data = deque([obj for i, obj in df.sort_values(by=["image"]).iterrows()])
     data_mask = deque([obj for i, obj in df_mask.sort_values(by=["image"]).iterrows()])
@@ -646,7 +679,7 @@ def view_mask(
             direction = 1 if direction == 0 else direction
             direction_mask = 1 if direction_mask == 0 else direction_mask
         else:
-            image = display_objects_and_mask(obj, obj_mask, mask_properties, "mask mode", detector)
+            image = display_objects_and_mask(obj, obj_mask, mask_properties, "mask mode", detector, predictor)
             key = cv2.waitKey()
             if key == ord("q"):
                 break
