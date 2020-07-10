@@ -24,8 +24,13 @@ def main() -> None:
     parser = argparse.ArgumentParser("Dataset preparation toolbox")
     parser.add_argument("-u", "--urls", type=pathlib.Path, default="urls/urls.txt")
     parser.add_argument("-d", "--dataset", type=pathlib.Path, default="images/dataset/")
+    parser.add_argument("-ext", "--ext", type=str, default="jpg")
+    parser.add_argument("-dm", "--dataset_mask", type=pathlib.Path, default="images/dataset_mask/")
+    parser.add_argument("-extm", "--ext_mask", type=str, default="png")
+    parser.add_argument("-iid", "--image_id", type=int, default=-1)
     parser.add_argument("-m", "--model_files", type=str, nargs="+", default=["models/model.xml"])
     parser.add_argument("-t", "--model_type", type=lambda model: DetectorModel[model], choices=list(DetectorModel), default="CvCaffe")
+    parser.add_argument("-km", "--keypoint_model", type=str, default=["models/model.dat"])
     parser.add_argument("-a", "--angle", type=float, default=0.0)
     parser.add_argument("-mc", "--min_conf", type=float, default="-inf")
     parser.add_argument("-Mc", "--max_conf", type=float, default="inf")
@@ -43,6 +48,7 @@ def main() -> None:
     parser.add_argument("-fc", "--filter_confidence", action="store_true")
     parser.add_argument("-l", "--load", action="store_true")
     parser.add_argument("-p", "--prepare", action="store_true")
+    parser.add_argument("-pm", "--prepare_mask", action="store_true")
     parser.add_argument("-dt", "--detect", action="store_true")
     parser.add_argument("-an", "--add_noise", action="store_true")
     parser.add_argument("-r", "--rotate", action="store_true")
@@ -50,12 +56,15 @@ def main() -> None:
     parser.add_argument("-s", "--save", action="store_true")
     parser.add_argument("-v", "--view", action="store_true")
     parser.add_argument("-vd", "--view_detection", action="store_true")
+    parser.add_argument("-vm", "--view_mask", action="store_true")
     args = parser.parse_args()
     if args.prepare:
-        df = prepare(args.dataset, args.model_files)
+        df = prepare(args.dataset, args.ext)
     elif args.load:
         df = load(args.name)
         df.file_id = df.file_id.astype(str)
+    if args.prepare_mask:
+        df_mask = prepare(args.dataset_mask, args.ext_mask)
     if args.filter_blacklist:
         df = filter_blacklist(df, args.blacklist)
     if args.filter_confidence:
@@ -73,6 +82,9 @@ def main() -> None:
     if args.view_detection:
         detector = DetectorFactory.create(args.model_type, args.model_files)
         view_detection(df, args.blacklist, detector)
+    if args.view_mask:
+        detector = DetectorFactory.create(args.model_type, args.model_files)
+        view_mask(df, df_mask, args.blacklist, detector, args.output, args.image_id)
     if args.view:
         view(df, args.blacklist)
     if args.save:
@@ -112,15 +124,15 @@ def read_file(filename: pathlib.Path) -> list:
     return file_metadata
 
 
-def get_data(dataset: pathlib.Path) -> list:
+def get_data(dataset: pathlib.Path, ext='jpg') -> list:
     data = list()
-    for filename in dataset.rglob("*.jpg"):
+    for filename in dataset.rglob(f"*.{ext}"):
         data += read_file(filename)
     return data
 
 
-def prepare(dataset: pathlib.Path, model: list) -> pd.DataFrame:
-    data = get_data(dataset)
+def prepare(dataset: pathlib.Path, ext='jpg') -> pd.DataFrame:
+    data = get_data(dataset, ext)
     df = pd.DataFrame(
         data,
         columns=[
@@ -283,14 +295,15 @@ def display(obj: pd.Series, name: str) -> None:
     image = cv2.imread(str(obj.image))
     cv2.imshow(name, image)
 
+
 def postprocess_roi(image: np.ndarray, rect: [int, int, int, int]) -> (int, int, int, int, (int, int), (int, int)):
     p1, p2 = get_square_box(image, rect, scale=0.85)
     height, width = image.shape[:2]
     x1, y1 = p1
     w, h = p2[0] - x1, p2[1] - y1
     xc = x1
-    yc = int(y1 + 0.2 * h)
-    h = int(0.4 * h)
+    yc = y1 # int(y1 + 0.2 * h)
+    h = h # int(0.4 * h)
     right = xc + w
     bottom = yc + h
     if right > width:
@@ -300,6 +313,81 @@ def postprocess_roi(image: np.ndarray, rect: [int, int, int, int]) -> (int, int,
         dh = bottom - height
         yc = yc - dh
     return xc, yc, w, h, p1, p2
+
+
+def draw_mask(image: np.ndarray, mask_image: np.ndarray, mask: np.ndarray, mask_properties: dict, rect: list) -> np.ndarray:
+    h_img, w_img = image.shape[:2]
+    h_mask, w_mask = mask.shape[:2]
+    dx_mask = mask_properties["x"]
+    dy_mask = mask_properties["y"]
+    x, y, w, h = rect
+    x_p = x + w // 2
+    y_p = y + 3 * h // 4
+    x_p += dx_mask
+    y_p += dy_mask
+    x0_roi = int(np.floor(x_p - w_mask / 2))
+    x1_roi = int(np.floor(x_p + w_mask / 2))
+    y0_roi = int(np.ceil(y_p - h_mask / 2))
+    y1_roi = int(np.ceil(y_p + h_mask / 2))
+    x0_mask = 0
+    x1_mask = w_mask
+    y0_mask = 0
+    y1_mask = h_mask
+    if x0_roi < 0:
+        x0_mask = abs(x0_roi)
+        x0_roi = 0
+    if y0_roi < 0:
+        y0_mask = abs(y0_roi)
+        y0_roi = 0
+    if x1_roi > w_img:
+        x1_mask -= abs(w_img - x1_roi)
+        x1_roi = w_img
+    if y1_roi > h_img:
+        y1_mask -= abs(h_img - y1_roi)
+        y1_roi = h_img
+    if x0_mask >= 0 and x0_mask <= w_mask and y0_mask >= 0 and y0_mask <= h_mask and x1_mask >= 0 and x1_mask <= w_mask and y1_mask >= 0 and y1_mask <= h_mask:
+        roi = image[y0_roi:y1_roi, x0_roi:x1_roi]
+        roi_mask = mask[y0_mask:y1_mask, x0_mask:x1_mask]
+        roi_mask_image = mask_image[y0_mask:y1_mask, x0_mask:x1_mask]
+        assert roi.shape == roi_mask_image.shape, f"Assertion error: roi shape {roi.shape} must be equal roi mask shape {roi_mask.shape}"
+        roi[roi_mask == 255] = roi_mask_image[roi_mask == 255]
+    return image
+
+def display_objects_and_mask(obj: pd.Series, obj_mask: pd.Series, mask_properties: dict, name: str, detector: DetectorInterface) -> np.ndarray:
+    image = cv2.imread(str(obj.image))
+    mask = cv2.imread(str(obj_mask.image), cv2.IMREAD_UNCHANGED)
+    scale = mask_properties["scale"]
+    mask = cv2.resize(mask, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
+    mask_image = mask[:, :, :3]
+    mask = mask[:, :, 3]
+    rects = []
+    confs = []
+    classes = []
+    whitelist = [1, 502]
+    class_names = {1: "face", 502: "face"}
+    detector.detect(
+        image=image,
+        rects=rects,
+        confs=confs,
+        classes=classes,
+        class_whitelist=whitelist,
+        class_names=class_names,
+    )
+    detector.postprocess(
+        image=image,
+        rects=rects,
+        confs=confs,
+        nms_threshold=0.1,
+        classes=classes,
+        class_whitelist=whitelist,
+        class_names=class_names,
+    )
+    for rect in rects:
+        x, y, w, h, p1, p2 = postprocess_roi(image, rect)
+        rect = [x, y, w, h]
+        image = draw_mask(image, mask_image, mask, mask_properties, rect)
+    cv2.imshow(name, image)
+    return image
 
 def display_objects(obj: pd.Series, name: str, detector: DetectorInterface) -> None:
     image = cv2.imread(str(obj.image))
@@ -504,6 +592,104 @@ def view_detection(
             else:
                 direction = 0
         data.rotate(direction)
+
+
+def scale_mask(mask_properties: dict, key: str, scale: float = 0.05):
+    if key == "t":
+        mask_properties["scale"] += scale
+    elif key == "g":
+        mask_properties["scale"] -= scale
+        if mask_properties["scale"] < scale:
+            mask_properties["scale"] = scale
+
+
+def move_mask(mask_properties: dict, key: str, scale: int = 1):
+    if key == "i":
+        mask_properties["y"] -= scale
+    elif key == "k":
+        mask_properties["y"] += scale
+    elif key == "l":
+        mask_properties["x"] += scale
+    elif key == "j":
+        mask_properties["x"] -= scale
+
+
+def get_default_mask_properties() -> dict:
+    return {
+        "x": 0,
+        "y": 0,
+        "scale": 1.0,
+    }
+
+
+def save_image_and_mask(obj: pd.Series, image: np.ndarray, image_id: int, output: pathlib.Path) -> None:
+    output.mkdir(parents=True, exist_ok=True)
+    image_path = pathlib.Path(obj.image)
+    image_file = output / f"{image_id}_{image_path.parts[-1]}"
+    cv2.imwrite(str(image_file), image)
+
+
+def view_mask(
+    df: pd.DataFrame, df_mask: pd.DataFrame, blacklist: pathlib.Path, detector: DetectorInterface, output: pathlib.Path, image_id: int = -1
+) -> None:
+    data = deque([obj for i, obj in df.sort_values(by=["image"]).iterrows()])
+    data_mask = deque([obj for i, obj in df_mask.sort_values(by=["image"]).iterrows()])
+    direction = 0
+    direction_mask = 0
+    mask_properties = get_default_mask_properties()
+    while True:
+        obj = data[0]
+        obj_mask = data_mask[0]
+        black = read_blacklist(blacklist)
+        if obj.file_id in black:
+            print("Skipping " + obj.file_id + "...")
+            direction = 1 if direction == 0 else direction
+            direction_mask = 1 if direction_mask == 0 else direction_mask
+        else:
+            image = display_objects_and_mask(obj, obj_mask, mask_properties, "mask mode", detector)
+            key = cv2.waitKey()
+            if key == ord("q"):
+                break
+            elif key == ord("d"):
+                direction = 1
+                direction_mask = 0
+            elif key == ord("a"):
+                direction = -1
+                direction_mask = 0
+            elif key == ord("w"):
+                direction = 0
+                direction_mask = 1
+            elif key == ord("s"):
+                direction = 0
+                direction_mask = -1
+            elif key == ord("f"):
+                flip(obj)
+                direction = 0
+                direction_mask = 0
+            elif key == ord("x"):
+                image_id += 1
+                save_image_and_mask(obj, image, image_id, output)
+            elif chr(key) in "ijkl" :
+                move_mask(mask_properties, chr(key))
+                direction = 0
+                direction_mask = 0
+            elif chr(key) in "tg" :
+                scale_mask(mask_properties, chr(key))
+                direction = 0
+                direction_mask = 0
+            elif key == ord("c"):
+                mode = "w"
+                if blacklist.exists() and blacklist.is_file():
+                    mode = "a"
+                with blacklist.open(mode) as f:
+                    f.write(obj.file_id + "\n")
+            else:
+                direction = 0
+                direction_mask = 0
+            if chr(key) in "wsr":
+                mask_properties = get_default_mask_properties()
+        data.rotate(direction)
+        data_mask.rotate(direction_mask)
 
 
 def rename(filename: str, suffix: str):
