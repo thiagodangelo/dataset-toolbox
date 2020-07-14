@@ -34,6 +34,7 @@ def main() -> None:
     parser.add_argument("-sm", "--shape_model", type=str, default="models/model.dat")
     parser.add_argument("-si", "--shape_indexes", type=int, nargs="+", default=[48, 54])
     parser.add_argument("-sam", "--shape_auto_mode", type=str, default="mean")
+    parser.add_argument("-sa", "--shape_adjustment", type=float, default=1.2)
     parser.add_argument("-a", "--angle", type=float, default=0.0)
     parser.add_argument("-mc", "--min_conf", type=float, default="-inf")
     parser.add_argument("-Mc", "--max_conf", type=float, default="inf")
@@ -53,6 +54,7 @@ def main() -> None:
     parser.add_argument("-p", "--prepare", action="store_true")
     parser.add_argument("-pm", "--prepare_mask", action="store_true")
     parser.add_argument("-dt", "--detect", action="store_true")
+    parser.add_argument("-ps", "--predict_shape", action="store_true")
     parser.add_argument("-an", "--add_noise", action="store_true")
     parser.add_argument("-r", "--rotate", action="store_true")
     parser.add_argument("-mr", "--mirror", action="store_true")
@@ -81,15 +83,49 @@ def main() -> None:
         mirror_all(df)
     if args.detect:
         detector = DetectorFactory.create(args.model_type, args.model_files)
-        detect_and_export(df, args.blacklist, detector, args.output, args.prefix)
+        predictor = {
+            "predictor": None,
+            "auto": False,
+            "predict_shape": args.predict_shape,
+            "shape_adjustment": args.shape_adjustment,
+            "indexes": args.shape_indexes,
+            "mode": args.shape_auto_mode,
+        }
+        try:
+            predictor["predictor"] = dlib.shape_predictor(args.shape_model)
+            predictor["auto"] = True
+            if predictor["predict_shape"]:
+                print("Shape predictor found. Automatic positioning is on.")
+        except:
+            if predictor["predict_shape"]:
+                print("Shape predictor not found. Automatic positioning is off.")
+        detect_and_export(df, args.blacklist, detector, predictor, args.output, args.prefix)
     if args.view_detection:
         detector = DetectorFactory.create(args.model_type, args.model_files)
-        view_detection(df, args.blacklist, detector)
+        predictor = {
+            "predictor": None,
+            "auto": False,
+            "predict_shape": args.predict_shape,
+            "shape_adjustment": args.shape_adjustment,
+            "indexes": args.shape_indexes,
+            "mode": args.shape_auto_mode,
+        }
+        try:
+            predictor["predictor"] = dlib.shape_predictor(args.shape_model)
+            predictor["auto"] = True
+            if predictor["predict_shape"]:
+                print("Shape predictor found. Automatic positioning is on.")
+        except:
+            if predictor["predict_shape"]:
+                print("Shape predictor not found. Automatic positioning is off.")
+        view_detection(df, args.blacklist, detector, predictor)
     if args.view_mask:
         detector = DetectorFactory.create(args.model_type, args.model_files)
         predictor = {
             "predictor": None,
             "auto": False,
+            "predict_shape": args.predict_shape,
+            "shape_adjustment": args.shape_adjustment,
             "indexes": args.shape_indexes,
             "mode": args.shape_auto_mode,
         }
@@ -335,18 +371,27 @@ def get_mask_pivot(image: np.ndarray, rect: list, predictor: dict):
     x_p = x + w // 2
     y_p = y + 3 * h // 4
     pivot = (x_p, y_p)
+    coords = None
+    roi = [x_p - w // 2, y_p - h // 2, w, h]
     if predictor["auto"]:
         det = (x, y, x + w, y + h)
         rect = dlib.rectangle(*det)
         shape = predictor["predictor"](image, rect)
-        coords = np.zeros((2, len(predictor["indexes"])))
+        coords = np.zeros((len(predictor["indexes"]), 2))
         for i, j in enumerate(predictor["indexes"]):
-            coords[0, i] = shape.part(j).x
-            coords[1, i] = shape.part(j).y
+            coords[i, 0] = shape.part(j).x
+            coords[i, 1] = shape.part(j).y
         if predictor["mode"] == "mean":
-            mean = coords.mean(axis=1)
+            mean = coords.mean(axis=0)
             pivot = (int(mean[0]), int(mean[1]))
-    return pivot
+            xc, yc = pivot
+            x0, y0 = coords.min(axis=0)
+            x1, y1 = coords.max(axis=0)
+            w_s = x1 - x0
+            h_s = y1 - y0
+            size = int(max(w_s, h_s) *  predictor["shape_adjustment"])
+            roi = [xc - size // 2, yc - size // 2, size, size]
+    return pivot, coords, roi
         
 
 def draw_mask(image: np.ndarray, mask_image: np.ndarray, mask: np.ndarray, mask_properties: dict, pivot: tuple) -> np.ndarray:
@@ -417,12 +462,12 @@ def display_objects_and_mask(obj: pd.Series, obj_mask: pd.Series, mask_propertie
     for rect in rects:
         x, y, w, h, p1, p2 = postprocess_roi(image, rect)
         rect = [x, y, w, h]
-        pivot = get_mask_pivot(image, rect, predictor)
+        pivot, _, _ = get_mask_pivot(image, rect, predictor)
         image = draw_mask(image, mask_image, mask, mask_properties, pivot)
     cv2.imshow(name, image)
     return image
 
-def display_objects(obj: pd.Series, name: str, detector: DetectorInterface) -> None:
+def display_objects(obj: pd.Series, name: str, detector: DetectorInterface, predictor: dict) -> None:
     image = cv2.imread(str(obj.image))
     rects = []
     confs = []
@@ -447,17 +492,21 @@ def display_objects(obj: pd.Series, name: str, detector: DetectorInterface) -> N
         class_names=class_names,
     )
     for rect in rects:
-        xc, yc, w, h, p1, p2 = postprocess_roi(image, rect)
+        x, y, w, h, p1, p2 = postprocess_roi(image, rect)
+        rect = [x, y, w, h]
+        if predictor["predict_shape"]:
+            pivot, coords, rect = get_mask_pivot(image, rect, predictor)
+            x, y, w, h = rect
         blue = (255, 0, 0)
         green = (0, 255, 0)
         red = (0, 0, 255)
         thickness = 2
         cv2.rectangle(image, p1, p2, blue, thickness)
-        cv2.rectangle(image, (xc, yc), (xc + w, yc + h), green, thickness)
+        cv2.rectangle(image, (x, y), (x + w, y + h), green, thickness)
     cv2.imshow(name, image)
 
 
-def detect_and_store_rois(obj: pd.Series, detector: DetectorInterface) -> None:
+def detect_and_store_rois(obj: pd.Series, detector: DetectorInterface, predictor: dict) -> None:
     image = cv2.imread(str(obj.image))
     rects = []
     confs = []
@@ -486,8 +535,12 @@ def detect_and_store_rois(obj: pd.Series, detector: DetectorInterface) -> None:
     obj["pos"] = []
     obj["neg"] = []
     for rect in rects:
-        xc, yc, w, h, _, _ = postprocess_roi(image, rect)
-        roi = image[yc : yc + h, xc : xc + w].copy()
+        x, y, w, h, _, _ = postprocess_roi(image, rect)
+        rect = [x, y, w, h]
+        if predictor["predict_shape"]:
+            pivot, coords, rect = get_mask_pivot(image, rect, predictor)
+            x, y, w, h = rect
+        roi = image[y : y + h, x : x + w].copy()
         has_object = "positive" in str(obj.image.parent)
         if has_object:
             obj.pos.append(roi)
@@ -522,6 +575,7 @@ def detect_and_export(
     df: pd.DataFrame,
     blacklist: pathlib.Path,
     detector: DetectorInterface,
+    predictor: dict,
     output: pathlib,
     prefix: str = "",
     ptrain: float = 0.8,
@@ -542,7 +596,7 @@ def detect_and_export(
             if obj.file_id in black:
                 print("Skipping " + obj.file_id + "...")
                 continue
-            detect_and_store_rois(obj, detector)
+            detect_and_store_rois(obj, detector, predictor)
             if not obj.pos and not obj.neg:
                 filename = output_neither / f"{prefix}{i}_xxx.jpg"
                 cv2.imwrite(str(filename), obj.img)
@@ -594,7 +648,7 @@ def view(df: pd.DataFrame, blacklist: pathlib.Path) -> None:
 
 
 def view_detection(
-    df: pd.DataFrame, blacklist: pathlib.Path, detector: DetectorInterface
+    df: pd.DataFrame, blacklist: pathlib.Path, detector: DetectorInterface, predictor: dict
 ) -> None:
     data = deque([obj for i, obj in df.sort_values(by=["image"]).iterrows()])
     direction = 0
@@ -605,7 +659,7 @@ def view_detection(
             print("Skipping " + obj.file_id + "...")
             direction = 1 if direction == 0 else direction
         else:
-            display_objects(obj, "detecting mode", detector)
+            display_objects(obj, "detecting mode", detector, predictor)
             key = cv2.waitKey()
             if key == ord("q"):
                 break
