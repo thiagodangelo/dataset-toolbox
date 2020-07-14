@@ -395,6 +395,7 @@ def get_mask_pivot(image: np.ndarray, rect: list, predictor: dict):
         
 
 def draw_mask(image: np.ndarray, mask_image: np.ndarray, mask: np.ndarray, mask_properties: dict, pivot: tuple) -> np.ndarray:
+    mask_image = np.clip(mask_properties["alpha"] * mask_image + mask_properties["beta"], 0, 255).astype(np.uint8)
     h_img, w_img = image.shape[:2]
     h_mask, w_mask = mask.shape[:2]
     dx_mask = mask_properties["x"]
@@ -701,11 +702,27 @@ def move_mask(mask_properties: dict, key: str, scale: int = 1):
         mask_properties["x"] -= scale
 
 
+def contrast_mask(mask_properties: dict, key: str, scale: float = 0.05):
+    if key == "y":
+        mask_properties["alpha"] += scale
+    elif key == "h":
+        mask_properties["alpha"] -= scale
+
+
+def brightness_mask(mask_properties: dict, key: str, scale: float = 1):
+    if key == "m":
+        mask_properties["beta"] += scale
+    elif key == "n":
+        mask_properties["beta"] -= scale
+
+
 def get_default_mask_properties() -> dict:
     return {
         "x": 0,
         "y": 0,
         "scale": 1.0,
+        "alpha": 1.0,
+        "beta": 0,
     }
 
 
@@ -762,6 +779,14 @@ def view_mask(
                 direction_mask = 0
             elif chr(key) in "tg" :
                 scale_mask(mask_properties, chr(key))
+                direction = 0
+                direction_mask = 0
+            elif chr(key) in "yh" :
+                contrast_mask(mask_properties, chr(key))
+                direction = 0
+                direction_mask = 0
+            elif chr(key) in "nm" :
+                brightness_mask(mask_properties, chr(key))
                 direction = 0
                 direction_mask = 0
             elif key == ord("c"):
