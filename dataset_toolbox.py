@@ -460,11 +460,18 @@ def display_objects_and_mask(obj: pd.Series, obj_mask: pd.Series, mask_propertie
         class_whitelist=whitelist,
         class_names=class_names,
     )
-    for rect in rects:
+    h_img, w_img = image.shape[:2]
+    default = False
+    pivot = (w_img // 2, h_img // 2)
+    rect = max(rects, default=None, key=lambda rect: rect[2] * rect[3])
+    if rect is None:
+        rect = [0, 0, w_img, h_img]
+        default = True
+    if not default:
         x, y, w, h, p1, p2 = postprocess_roi(image, rect)
         rect = [x, y, w, h]
         pivot, _, _ = get_mask_pivot(image, rect, predictor)
-        image = draw_mask(image, mask_image, mask, mask_properties, pivot)
+    image = draw_mask(image, mask_image, mask, mask_properties, pivot)
     cv2.imshow(name, image)
     return image
 
