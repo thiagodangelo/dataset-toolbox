@@ -398,9 +398,14 @@ def draw_mask(image: np.ndarray, mask_image: np.ndarray, mask: np.ndarray, mask_
     mask_image = np.clip(mask_properties["alpha"] * mask_image + mask_properties["beta"], 0, 255).astype(np.uint8)
     h_img, w_img = image.shape[:2]
     h_mask, w_mask = mask.shape[:2]
-    dx_mask = mask_properties["x"]
-    dy_mask = mask_properties["y"]
-    x_p, y_p = pivot
+    dx_mask = mask_properties["dx"]
+    dy_mask = mask_properties["dy"]
+    x_mask = mask_properties["x"]
+    y_mask = mask_properties["y"]
+    if x_mask == -1 or y_mask == -1:
+        x_p, y_p = pivot
+    else:
+        x_p, y_p = x_mask, y_mask
     x_p += dx_mask
     y_p += dy_mask
     x0_roi = int(np.floor(x_p - w_mask / 2))
@@ -698,15 +703,26 @@ def scale_mask(mask_properties: dict, key: str, scale: float = 0.05):
             mask_properties["scale"] = scale
 
 
+def set_mask_coord(event, x, y, flags, mask_properties):
+    if event == cv2.EVENT_LBUTTONDOWN:
+        mask_properties["x"] = x
+        mask_properties["y"] = y
+        
+    elif event == cv2.EVENT_RBUTTONDOWN:
+        mask_properties["x"] = -1
+        mask_properties["y"] = -1
+        
+
+
 def move_mask(mask_properties: dict, key: str, scale: int = 1):
     if key == "i":
-        mask_properties["y"] -= scale
+        mask_properties["dy"] -= scale
     elif key == "k":
-        mask_properties["y"] += scale
+        mask_properties["dy"] += scale
     elif key == "l":
-        mask_properties["x"] += scale
+        mask_properties["dx"] += scale
     elif key == "j":
-        mask_properties["x"] -= scale
+        mask_properties["dx"] -= scale
 
 
 def contrast_mask(mask_properties: dict, key: str, scale: float = 0.05):
@@ -723,14 +739,25 @@ def brightness_mask(mask_properties: dict, key: str, scale: float = 1):
         mask_properties["beta"] -= scale
 
 
-def get_default_mask_properties() -> dict:
-    return {
-        "x": 0,
-        "y": 0,
-        "scale": 1.0,
-        "alpha": 1.0,
-        "beta": 0,
-    }
+def get_default_mask_properties(mask_properties: dict = None) -> dict:
+    if mask_properties is None:
+        return {
+            "dx": 0,
+            "dy": 0,
+            "scale": 1.0,
+            "alpha": 1.0,
+            "beta": 0,
+            "x": -1,
+            "y": -1,
+        }
+    mask_properties["dx"] = 0
+    mask_properties["dy"] = 0
+    mask_properties["scale"] = 1.0
+    mask_properties["alpha"] = 1.0
+    mask_properties["beta"] = 0
+    mask_properties["x"] = -1
+    mask_properties["y"] = -1
+    return mask_properties
 
 
 def save_image_and_mask(obj: pd.Series, image: np.ndarray, image_id: int, output: pathlib.Path) -> None:
@@ -747,7 +774,10 @@ def view_mask(
     data_mask = deque([obj for i, obj in df_mask.sort_values(by=["image"]).iterrows()])
     direction = 0
     direction_mask = 0
+    window_name = "mask mode"
     mask_properties = get_default_mask_properties()
+    cv2.namedWindow(window_name)
+    cv2.setMouseCallback(window_name, set_mask_coord, mask_properties)
     while True:
         obj = data[0]
         obj_mask = data_mask[0]
@@ -757,7 +787,7 @@ def view_mask(
             direction = 1 if direction == 0 else direction
             direction_mask = 1 if direction_mask == 0 else direction_mask
         else:
-            image = display_objects_and_mask(obj, obj_mask, mask_properties, "mask mode", detector, predictor)
+            image = display_objects_and_mask(obj, obj_mask, mask_properties, window_name, detector, predictor)
             key = cv2.waitKey()
             if key == ord("q"):
                 break
@@ -806,7 +836,7 @@ def view_mask(
                 direction = 0
                 direction_mask = 0
             if chr(key) in "wsr":
-                mask_properties = get_default_mask_properties()
+                mask_properties = get_default_mask_properties(mask_properties)
         data.rotate(direction)
         data_mask.rotate(direction_mask)
 
