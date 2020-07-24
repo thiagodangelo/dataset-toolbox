@@ -436,6 +436,7 @@ def draw_mask(image: np.ndarray, mask_image: np.ndarray, mask: np.ndarray, mask_
         roi[roi_mask == 255] = roi_mask_image[roi_mask == 255]
     return image
 
+
 def display_objects_and_mask(obj: pd.Series, obj_mask: pd.Series, mask_properties: dict, name: str, detector: DetectorInterface, predictor: dict) -> np.ndarray:
     image = cv2.imread(str(obj.image))
     mask = cv2.imread(str(obj_mask.image), cv2.IMREAD_UNCHANGED)
@@ -479,6 +480,7 @@ def display_objects_and_mask(obj: pd.Series, obj_mask: pd.Series, mask_propertie
     image = draw_mask(image, mask_image, mask, mask_properties, pivot)
     cv2.imshow(name, image)
     return image
+
 
 def display_objects(obj: pd.Series, name: str, detector: DetectorInterface, predictor: dict) -> None:
     image = cv2.imread(str(obj.image))
@@ -712,7 +714,6 @@ def set_mask_coord(event, x, y, flags, mask_properties):
         mask_properties["x"] = -1
         mask_properties["y"] = -1
         
-
 
 def move_mask(mask_properties: dict, key: str, scale: int = 1):
     if key == "i":
