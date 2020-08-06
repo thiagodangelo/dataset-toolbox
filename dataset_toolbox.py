@@ -36,6 +36,8 @@ def main() -> None:
     parser.add_argument("-sam", "--shape_auto_mode", type=str, default="mean")
     parser.add_argument("-sa", "--shape_adjustment", type=float, default=1.2)
     parser.add_argument("-a", "--angle", type=float, default=0.0)
+    parser.add_argument("-maxa", "--max_angle", type=float, default=20.0)
+    parser.add_argument("-mina", "--min_angle", type=float, default=5.0)
     parser.add_argument("-mc", "--min_conf", type=float, default="-inf")
     parser.add_argument("-Mc", "--max_conf", type=float, default="inf")
     parser.add_argument("-nm", "--noise_mode", type=str, default="gaussian")
@@ -57,6 +59,7 @@ def main() -> None:
     parser.add_argument("-ps", "--predict_shape", action="store_true")
     parser.add_argument("-an", "--add_noise", action="store_true")
     parser.add_argument("-r", "--rotate", action="store_true")
+    parser.add_argument("-rr", "--rotate_random", action="store_true")
     parser.add_argument("-mr", "--mirror", action="store_true")
     parser.add_argument("-s", "--save", action="store_true")
     parser.add_argument("-v", "--view", action="store_true")
@@ -75,8 +78,9 @@ def main() -> None:
     if args.filter_confidence:
         df = filter_confidence(df, args.min_conf, args.max_conf)
     if args.rotate:
-        # rotate_all(df, args.angle)
-        rotate_all_random(df, args.angle)
+        rotate_all(df, args.angle)
+    if args.rotate_random:
+        rotate_all_random(df, args.min_angle, args.max_angle)
     if args.add_noise:
         add_noise_all(df, args.noise_mode)
     if args.mirror:
@@ -870,11 +874,9 @@ def rotate_all(df: pd.DataFrame, angle: float) -> None:
         rotate(obj, angle)
 
 
-def rotate_all_random(df: pd.DataFrame, angle_bound: float) -> None:
+def rotate_all_random(df: pd.DataFrame, min_angle: float, max_angle: float) -> None:
     for _, obj in df.sort_values(by=["image"]).iterrows():
-        angle = 0
-        while angle == 0:
-            angle = random.randint(-angle_bound, +angle_bound)
+        angle = random.randint(min_angle, max_angle) * (-1) ** random.randint(0, 1)
         rotate_roi(obj, angle)
 
 
