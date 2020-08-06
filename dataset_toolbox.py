@@ -446,7 +446,9 @@ def display_objects_and_mask(obj: pd.Series, obj_mask: pd.Series, mask_propertie
     image = cv2.imread(str(obj.image))
     mask = cv2.imread(str(obj_mask.image), cv2.IMREAD_UNCHANGED)
     scale = mask_properties["scale"]
+    angle_mask = mask_properties["angle"]
     mask = cv2.resize(mask, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
+    mask = imutils.rotate_bound(mask, angle_mask)
     mask_image = mask[:, :, :3]
     mask = mask[:, :, 3]
     rects = []
@@ -710,7 +712,7 @@ def scale_mask(mask_properties: dict, key: str, scale: float = 0.05):
             mask_properties["scale"] = scale
 
 
-def set_mask_coord(event, x, y, flags, mask_properties):
+def set_mask_props(event, x, y, flags, mask_properties, angle_scale: float = 5):
     if event == cv2.EVENT_LBUTTONDOWN:
         mask_properties["x"] = x
         mask_properties["y"] = y
@@ -719,6 +721,12 @@ def set_mask_coord(event, x, y, flags, mask_properties):
         mask_properties["x"] = -1
         mask_properties["y"] = -1
         
+    elif event == cv2.EVENT_MOUSEWHEEL:
+        if flags > 0:
+            mask_properties["angle"] += angle_scale
+        else:
+            mask_properties["angle"] -= angle_scale
+
 
 def move_mask(mask_properties: dict, key: str, scale: int = 1):
     if key == "i":
@@ -755,6 +763,7 @@ def get_default_mask_properties(mask_properties: dict = None) -> dict:
             "beta": 0,
             "x": -1,
             "y": -1,
+            "angle": 0,
         }
     mask_properties["dx"] = 0
     mask_properties["dy"] = 0
@@ -763,6 +772,7 @@ def get_default_mask_properties(mask_properties: dict = None) -> dict:
     mask_properties["beta"] = 0
     mask_properties["x"] = -1
     mask_properties["y"] = -1
+    mask_properties["angle"] = 0
     return mask_properties
 
 
@@ -783,7 +793,7 @@ def view_mask(
     window_name = "mask mode"
     mask_properties = get_default_mask_properties()
     cv2.namedWindow(window_name)
-    cv2.setMouseCallback(window_name, set_mask_coord, mask_properties)
+    cv2.setMouseCallback(window_name, set_mask_props, mask_properties)
     while True:
         obj = data[0]
         obj_mask = data_mask[0]
