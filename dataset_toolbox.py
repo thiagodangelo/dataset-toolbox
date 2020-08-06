@@ -60,6 +60,7 @@ def main() -> None:
     parser.add_argument("-an", "--add_noise", action="store_true")
     parser.add_argument("-r", "--rotate", action="store_true")
     parser.add_argument("-rr", "--rotate_random", action="store_true")
+    parser.add_argument("-rb", "--rotate_bound", action="store_true")
     parser.add_argument("-mr", "--mirror", action="store_true")
     parser.add_argument("-s", "--save", action="store_true")
     parser.add_argument("-v", "--view", action="store_true")
@@ -78,9 +79,9 @@ def main() -> None:
     if args.filter_confidence:
         df = filter_confidence(df, args.min_conf, args.max_conf)
     if args.rotate:
-        rotate_all(df, args.angle)
+        rotate_all(df, args.angle, args.rotate_bound)
     if args.rotate_random:
-        rotate_all_random(df, args.min_angle, args.max_angle)
+        rotate_all_random(df, args.min_angle, args.max_angle, args.rotate_bound)
     if args.add_noise:
         add_noise_all(df, args.noise_mode)
     if args.mirror:
@@ -851,33 +852,27 @@ def rename(filename: str, suffix: str):
     return f"{name}_{suffix}.{ext}"
 
 
-def rotate(obj: pd.Series, angle: float):
+def rotate(obj: pd.Series, angle: float, rotate_bound: bool):
     image = cv2.imread(str(obj.image), cv2.IMREAD_UNCHANGED)
-    image = imutils.rotate_bound(image, angle)
+    if rotate_bound:
+        image = imutils.rotate_bound(image, angle)
+    else:
+        image = imutils.rotate(image, angle)
     full_path = list(obj.image.parts)
     full_path[-1] = rename(full_path[-1], f"angle_{int(angle)}")
     full_path = pathlib.Path(*full_path)
     cv2.imwrite(str(full_path), image)
 
 
-def rotate_roi(obj: pd.Series, angle: float):
-    image = cv2.imread(str(obj.image), cv2.IMREAD_UNCHANGED)
-    image = imutils.rotate(image, angle)
-    full_path = list(obj.image.parts)
-    full_path[-1] = rename(full_path[-1], f"angle_{int(angle)}")
-    full_path = pathlib.Path(*full_path)
-    cv2.imwrite(str(full_path), image)
-
-
-def rotate_all(df: pd.DataFrame, angle: float) -> None:
+def rotate_all(df: pd.DataFrame, angle: float, rotate_bound: bool) -> None:
     for _, obj in df.sort_values(by=["image"]).iterrows():
-        rotate(obj, angle)
+        rotate(obj, angle, rotate_bound)
 
 
-def rotate_all_random(df: pd.DataFrame, min_angle: float, max_angle: float) -> None:
+def rotate_all_random(df: pd.DataFrame, min_angle: float, max_angle: float, rotate_bound: bool) -> None:
     for _, obj in df.sort_values(by=["image"]).iterrows():
         angle = random.randint(min_angle, max_angle) * (-1) ** random.randint(0, 1)
-        rotate_roi(obj, angle)
+        rotate(obj, angle, rotate_bound)
 
 
 def add_noise(obj: pd.Series, mode: str):
