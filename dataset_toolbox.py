@@ -625,7 +625,7 @@ def detect_and_export(
 
 
 def flip(obj: pd.Series) -> None:
-    image = cv2.imread(str(obj.image))
+    image = cv2.imread(str(obj.image), cv2.IMREAD_UNCHANGED)
     image = cv2.flip(image, 1)
     cv2.imwrite(str(obj.image), image)
 
@@ -848,7 +848,7 @@ def rename(filename: str, suffix: str):
 
 
 def rotate(obj: pd.Series, angle: float):
-    image = cv2.imread(str(obj.image))
+    image = cv2.imread(str(obj.image), cv2.IMREAD_UNCHANGED)
     image = imutils.rotate_bound(image, angle)
     full_path = list(obj.image.parts)
     full_path[-1] = rename(full_path[-1], f"angle_{int(angle)}")
@@ -857,7 +857,7 @@ def rotate(obj: pd.Series, angle: float):
 
 
 def rotate_roi(obj: pd.Series, angle: float):
-    image = cv2.imread(str(obj.image))
+    image = cv2.imread(str(obj.image), cv2.IMREAD_UNCHANGED)
     image = imutils.rotate(image, angle)
     full_path = list(obj.image.parts)
     full_path[-1] = rename(full_path[-1], f"angle_{int(angle)}")
@@ -879,7 +879,7 @@ def rotate_all_random(df: pd.DataFrame, angle_bound: float) -> None:
 
 
 def add_noise(obj: pd.Series, mode: str):
-    image = cv2.imread(str(obj.image))
+    image = cv2.imread(str(obj.image), cv2.IMREAD_UNCHANGED)
     image = skimage.util.random_noise(image / 255.0, mode=mode)
     image = image * 255.0
     full_path = list(obj.image.parts)
@@ -894,7 +894,7 @@ def add_noise_all(df: pd.DataFrame, mode: str) -> None:
 
 
 def mirror(obj: pd.Series) -> None:
-    image = cv2.imread(str(obj.image))
+    image = cv2.imread(str(obj.image), cv2.IMREAD_UNCHANGED)
     image = cv2.flip(image, 1)
     full_path = list(obj.image.parts)
     full_path[-1] = rename(full_path[-1], "mirror")
@@ -921,7 +921,7 @@ def export(df: pd.DataFrame, output: pathlib.Path, filename: pathlib.Path) -> No
     output.mkdir(parents=True, exist_ok=True)
     for _, obj in df.sort_values(by=["file_id"]).iterrows():
         image_path = pathlib.Path(obj.image)
-        image = cv2.imread(str(image_path))
+        image = cv2.imread(str(image_path), cv2.IMREAD_UNCHANGED)
         image_file = output / image_path.parts[-1]
         cv2.imwrite(str(image_file), image)
 
